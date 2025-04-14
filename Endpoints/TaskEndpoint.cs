@@ -12,6 +12,67 @@ public static class TaskEndpoint
 {
     public static void AddTaskEndpoints(this WebApplication app)
     {
+        app.MapDelete("/api/tasks/{id}", async (int id, TasksContext context,
+            ClaimsPrincipal userPrincipal,
+            UserManager<TaskUser> userManager) =>
+        {
+            var user = await userManager.GetUserAsync(userPrincipal);
+
+            if (user == null)
+            {
+                return Results.NotFound();
+            }
+
+            var deletedRows = await context.Tasks
+                .Where(t => t.Id == id && t.Project.User.Id == user.Id)
+                .ExecuteDeleteAsync();
+
+            return deletedRows > 0 ? Results.Ok() : Results.NotFound();
+        })
+        .WithName("DeleteTask")
+        .RequireAuthorization();
+
+        app.MapPut("/api/tasks/{id}", async (int id, UpdateProjectTaskRequest request,
+            TasksContext context,
+            ClaimsPrincipal userPrincipal,
+            UserManager<TaskUser> userManager) =>
+        {
+            if (id != request.Id)
+            {
+                return Results.BadRequest();
+            }
+
+            var user = await userManager.GetUserAsync(userPrincipal);
+
+            if (user == null)
+            {
+                return Results.NotFound();
+            }
+
+            var task = await context.Tasks
+                .Where(t => t.Id == request.Id && t.Project.User.Id == user.Id)
+                .FirstOrDefaultAsync();
+
+            if (task == null)
+            {
+                return Results.NotFound();
+            }
+
+            task.Name = request.Name;
+            task.IsDone = request.IsDone;
+            task.Description = request.Description;
+            task.Until = request.Until;
+            task.Updated = DateTime.Now;
+
+            await context.SaveChangesAsync();
+
+            return Results.Ok();
+
+        })
+        .WithName("UpdateTask")
+        .RequireAuthorization();
+
+
         app.MapPost("/api/tasks/create", async (CreateProjectTaskRequest request,
             TasksContext context,
             ClaimsPrincipal userPrincipal,
@@ -54,7 +115,8 @@ public static class TaskEndpoint
         .WithName("CreateTask")
         .RequireAuthorization();
 
-        app.MapGet("/api/tasks", async (TasksContext context,
+        app.MapGet("/api/tasks", async (int page, int limit, 
+            TasksContext context,
             ClaimsPrincipal userPrincipal,
             UserManager<TaskUser> userManager) =>
         {
@@ -77,8 +139,13 @@ public static class TaskEndpoint
                 await context.SaveChangesAsync();
             }
 
-            return Results.Ok(defaultProject.Tasks
-                    .Select(t => ProjectTaskMapper.ConvertToResponse(t)));
+            var tasks = defaultProject.Tasks
+                .OrderBy(t => t.Created)
+                .Skip((page - 1) * limit)
+                .Take(limit)
+                .Select(t => ProjectTaskMapper.ConvertToResponse(t));
+
+            return Results.Ok(tasks);
         })
         .WithName("GetTasksOfDefaultProject")
         .RequireAuthorization();
