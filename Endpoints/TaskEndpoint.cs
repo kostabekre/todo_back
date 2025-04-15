@@ -58,11 +58,27 @@ public static class TaskEndpoint
                 return Results.NotFound();
             }
 
-            task.Name = request.Name;
-            task.IsDone = request.IsDone;
-            task.Description = request.Description;
-            task.Until = request.Until;
-            task.Updated = DateTime.Now;
+            if (request.Name != null)
+            {
+                task.Name = request.Name;
+            }
+
+            if (request.IsDone != null)
+            {
+                task.IsDone = (bool)request.IsDone;
+            }
+
+            if (request.Description != null)
+            {
+                task.Description = request.Description;
+            }
+
+            if (request.Until != null)
+            {
+                task.Until =  ((DateTime)request.Until).ToUniversalTime();
+            }
+
+            task.Updated = DateTime.UtcNow;
 
             await context.SaveChangesAsync();
 
@@ -73,7 +89,7 @@ public static class TaskEndpoint
         .RequireAuthorization();
 
 
-        app.MapPost("/api/tasks/create", async (CreateProjectTaskRequest request,
+        app.MapPost("/api/tasks", async (CreateProjectTaskRequest request,
             TasksContext context,
             ClaimsPrincipal userPrincipal,
             UserManager<TaskUser> userManager) =>
@@ -101,7 +117,7 @@ public static class TaskEndpoint
                 Name = request.Name,
                 Description = request.Description,
                 Project = defaultProject,
-                Until = request.Until,
+                Until = request.Until == null ? null : ((DateTime)request.Until).ToUniversalTime(),
                 Created = DateTime.UtcNow,
                 Updated = DateTime.UtcNow
             };
@@ -115,11 +131,15 @@ public static class TaskEndpoint
         .WithName("CreateTask")
         .RequireAuthorization();
 
-        app.MapGet("/api/tasks", async (int page, int limit, 
-            TasksContext context,
+        app.MapGet("/api/tasks", async (TasksContext context,
             ClaimsPrincipal userPrincipal,
-            UserManager<TaskUser> userManager) =>
+            UserManager<TaskUser> userManager, int page = 1, int limit = 10) =>
         {
+            if (page < 1 || limit < 1)
+            {
+                return Results.BadRequest("Page arguments are wrong");
+            }
+
             var user = await userManager.GetUserAsync(userPrincipal);
 
             if (user == null)
